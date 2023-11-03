@@ -247,6 +247,9 @@ isaac_gym_task_map = {
       # 可以加入自定义的参数，比如 reward function scale 等等
   
   sim:
+  	# 把 gpu 换成 cpu 可以在窗口查看 dof 的详情
+  	use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  	
       # up_axis, ...
   
   task:
