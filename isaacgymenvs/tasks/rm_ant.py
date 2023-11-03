@@ -64,7 +64,7 @@ class RMAnt(VecTask):
         self.plane_dynamic_friction = self.cfg["env"]["plane"]["dynamicFriction"]
         self.plane_restitution = self.cfg["env"]["plane"]["restitution"]
 
-        self.cfg["env"]["numObservations"] = 60
+        self.cfg["env"]["numObservations"] = 61
         self.cfg["env"]["numActions"] = 8
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
@@ -231,17 +231,8 @@ class RMAnt(VecTask):
             self.obs_buf,
             self.reset_buf,
             self.progress_buf,
-            self.actions,
-            self.up_weight,
-            self.heading_weight,
-            self.potentials,
-            self.prev_potentials,
-            self.actions_cost_scale,
-            self.energy_cost_scale,
-            self.joints_at_limit_cost_scale,
-            self.termination_height,
-            self.death_cost,
-            self.max_episode_length
+            self.max_episode_length,
+            self.dt,
         )
 
     def compute_observations(self):
@@ -249,23 +240,27 @@ class RMAnt(VecTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_force_sensor_tensor(self.sim)
 
-        self.obs_buf[:], self.potentials[:], self.prev_potentials[:], self.up_vec[:], self.heading_vec[:] = compute_ant_observations(
-            self.root_states,           # root (position, linear vel, angular vel)
-            self.targets,               # + task target
-            self.potentials,            # + potentials
-            self.inv_start_rot,         # ?
-            self.dof_pos,               # joint position (rotation)
-            self.dof_vel,               # joint velocity (angular vel)
-            self.dof_limits_lower,      # dof lower bound
-            self.dof_limits_upper,      # dof upper bound
-            self.dof_vel_scale,         # #
-            self.force_sensor,          # feet force sensor, (force 3, torque 3)
-            self.actions,               # -
-            self.dt,                    # -
-            self.contact_force_scale,   # #
-            self.basis_vec0,            # + heading
-            self.basis_vec1,            # + up vec
-            self.up_axis_idx)           # -
+        """
+        root_states, 
+        dof_pos, 
+        dof_vel,
+        dof_limits_lower, 
+        dof_limits_upper, 
+        dof_vel_scale,
+        sensor_force_torques, 
+        actions, 
+        contact_force_scale
+        """
+        self.obs_buf[:] = compute_ant_observations(
+            self.root_states,
+            self.dof_pos,
+            self.dof_vel,
+            self.dof_limits_lower,
+            self.dof_limits_upper,
+            self.dof_vel_scale,
+            self.force_sensor,
+            self.actions,
+            self.contact_force_scale)
 
     # Required for PBT training
     def compute_true_objective(self):
@@ -353,143 +348,32 @@ def compute_ant_reward(
     obs_buf,
     reset_buf,
     progress_buf,
-    actions,
-    up_weight,
-    heading_weight,
-    potentials,
-    prev_potentials,
-    actions_cost_scale,
-    energy_cost_scale,
-    joints_at_limit_cost_scale,
-    termination_height,
-    death_cost,
-    max_episode_length
+    max_episode_length,
+    dt,
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, float, Tensor, Tensor, float, float, float, float, float, float) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, float, float) -> Tuple[Tensor, Tensor]
 
-    """
-    obs:
-        root pos
-        root vel local
-        root angvel local
-        root yaw
-        root roll
-        root angle_to_target
-        up_proj
-        heading_proj
-        dof_pos  # SCALED TO [-1, 1]
-        dof_vel  # SCALED BY dof_vel_scale
-        sensor_force_torques
-        actions  # ACTION AS OBSERVATION
-    """
-
-    # reward from direction headed
-    heading_weight_tensor = torch.ones_like(obs_buf[:, 11]) * heading_weight
-    heading_reward = torch.where(obs_buf[:, 11] > 0.8, heading_weight_tensor, heading_weight * obs_buf[:, 11] / 0.8)  # roll
-
-    # aligning up axis of ant and environment
-    up_reward = torch.zeros_like(heading_reward)
-    up_reward = torch.where(obs_buf[:, 10] > 0.93, up_reward + up_weight, up_reward)  # yaw
-
-    # energy penalty for movement
-    actions_cost = torch.sum(actions ** 2, dim=-1)
-    electricity_cost = torch.sum(torch.abs(actions * obs_buf[:, 20:28]), dim=-1)
-    dof_at_limit_cost = torch.sum(obs_buf[:, 12:20] > 0.99, dim=-1)
-
-    # reward for duration of staying alive
-    alive_reward = torch.ones_like(potentials) * 0.5
-    progress_reward = potentials - prev_potentials
-
-    total_reward = progress_reward + alive_reward + up_reward + heading_reward - \
-        actions_cost_scale * actions_cost - energy_cost_scale * electricity_cost - dof_at_limit_cost * joints_at_limit_cost_scale
-
-    # adjust reward for fallen agents
-    total_reward = torch.where(obs_buf[:, 0] < termination_height, torch.ones_like(total_reward) * death_cost, total_reward)
+    # total_reward = obs_buf[:, 2] + obs_buf[:, 9]  # Z pos + Z vel
+    total_reward = obs_buf[:, 2]  # Z pos
 
     # reset agents
-    reset = torch.where(obs_buf[:, 0] < termination_height, torch.ones_like(reset_buf), reset_buf)
-    reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset)
+    reset_flag = torch.ones_like(reset_buf)
+    reset = torch.where(progress_buf >= max_episode_length - 1, reset_flag, reset_buf)
 
     return total_reward, reset
 
 
 @torch.jit.script
-def compute_ant_observations(root_states, targets, potentials,
-                             inv_start_rot, dof_pos, dof_vel,
+def compute_ant_observations(root_states, dof_pos, dof_vel,
                              dof_limits_lower, dof_limits_upper, dof_vel_scale,
-                             sensor_force_torques, actions, dt, contact_force_scale,
-                             basis_vec0, basis_vec1, up_axis_idx):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, float, float, Tensor, Tensor, int) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]
+                             sensor_force_torques, actions, contact_force_scale):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, float) -> Tensor
 
-    """
-        self.root_states,           # root (position 3, rotation 4, linear vel 3, angular vel 3)
-        self.targets,               # + task target (3)
-        self.potentials,            # + potentials (1)
-        self.inv_start_rot,         # inv(start root rotation)  (4)
-        self.dof_pos,               # joint position (D)
-        self.dof_vel,               # joint velocity (D)
-        self.dof_limits_lower,      # dof lower bound
-        self.dof_limits_upper,      # dof upper bound
-        self.dof_vel_scale,         # #
-        self.force_sensor,          # feet force sensor (force 3, torque 3)
-        self.actions,               # -
-        self.dt,                    # -
-        self.contact_force_scale,   # #
-        self.basis_vec0,            # + heading vec
-        self.basis_vec1,            # + up vec
-        self.up_axis_idx)           # -
-    """
-    torso_position = root_states[:, 0:3]
-    torso_rotation = root_states[:, 3:7]
-    torso_velocity = root_states[:, 7:10]
-    torso_angvel = root_states[:, 10:13]
-
-    to_target = targets - torso_position
-    to_target[:, 2] = 0.0  # to_target[Z-axis] = 0
-
-    prev_potentials = potentials.clone()
-    potentials = -torch.norm(to_target, p=2, dim=-1) / dt  # current potentials
-
-    # rm no matter what torso_rotation is,
-    #  compute a delta rotation (relative to inv_start_rot (e.g. +X as forward) )
-    #  and apply to torso_rotation, up_vec(vec0) and forward_vec(vec1)
-    # returns: (torso_rotation, up_proj_to_+Z, heading_proj_to_HEAD_VEC, up_vec, heading_vec)
-    torso_quat, up_proj, heading_proj, up_vec, heading_vec = compute_heading_and_up(
-        torso_rotation, inv_start_rot, to_target, basis_vec0, basis_vec1, 2)
-
-    # rm get root_vel_local, root_angvel_local, root_roll,pitch,yaw, angle_to_target(approx. to 0?)
-    vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target = compute_rot(
-        torso_quat, torso_velocity, torso_angvel, targets, torso_position)
-
-    dof_pos_scaled = unscale(dof_pos, dof_limits_lower, dof_limits_upper)
-
-    # obs_buf shapes: 1, 3, 3, 1, 1, 1, 1, 1, num_dofs(8), num_dofs(8), 24, num_dofs(8)
-    obs = torch.cat((torso_position[:, up_axis_idx].view(-1, 1),
-                     vel_loc,
-                     angvel_loc,
-                     yaw.unsqueeze(-1),
-                     roll.unsqueeze(-1),
-                     angle_to_target.unsqueeze(-1),
-                     up_proj.unsqueeze(-1),
-                     heading_proj.unsqueeze(-1),
+    dof_pos_scaled = unscale(dof_pos, dof_limits_lower, dof_limits_upper)  # to [-1, 1]
+    obs = torch.cat((root_states,  #
                      dof_pos_scaled,
                      dof_vel * dof_vel_scale,
-                     sensor_force_torques.view(-1, 24) * contact_force_scale,
+                     sensor_force_torques.view(-1, 4 * 6) * contact_force_scale,
                      actions), dim=-1)
-    """
-    obs:
-        root pos
-        root vel local
-        root angvel local
-        root yaw
-        root roll
-        root angle_to_target
-        up_proj
-        heading_proj
-        dof_pos  # SCALED TO [-1, 1]
-        dof_vel  # SCALED BY dof_vel_scale
-        sensor_force_torques
-        actions  # ACTION AS OBSERVATION
-    """
 
-    return obs, potentials, prev_potentials, up_vec, heading_vec
+    return obs
