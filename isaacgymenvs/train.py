@@ -68,7 +68,7 @@ def preprocess_train_config(cfg, config_dict):
     return config_dict
 
 
-@hydra.main(version_base="1.1", config_name="config", config_path="./cfg")
+@hydra.main(version_base="1.1", config_name="config", config_path="cfg")
 def launch_rlg_hydra(cfg: DictConfig):
 
     import logging
