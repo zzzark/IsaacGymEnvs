@@ -58,32 +58,22 @@ def main():
     cwd = os.getcwd()
     print(f"cwd: {cwd}")
 
-    pid = os.fork()
-    if pid == 0:
-        cur_time = datetime.datetime.now()
-        os.makedirs("./runs", exist_ok=True)
-        filename = os.path.join("./runs",
-                                f"{cur_time.hour:02d}-{cur_time.minute:02d}--"
-                                f"{cur_time.month:02d}-{cur_time.day:02d}.log")
-        with PrintToConsole(filename):
-            import isaacgym
-            import torch
-            print(' ################### ')
-            print(f" cwd: {cwd}")
-            print(f" torch: {torch.__version__}")
-            print(' ################### ')
+    cur_time = datetime.datetime.now()
+    os.makedirs("./runs", exist_ok=True)
+    filename = os.path.join("./runs",
+                            f"{cur_time.hour:02d}-{cur_time.minute:02d}--"
+                            f"{cur_time.month:02d}-{cur_time.day:02d}.log")
+    with PrintToConsole(filename):
+        import isaacgym
+        import torch
+        print(' ################### ')
+        print(f" cwd: {cwd}")
+        print(f" torch: {torch.__version__}")
+        print(' ################### ')
 
-            from isaacgymenvs.train import launch_rlg_hydra
-            with Tick("\n\n\n\n    run launch_rlg_hydra time elapsed: "):
-                launch_rlg_hydra()
-    elif pid > 0:
-        print(f" >>>>>> pid={pid}")
-
-        with Tick(' >>>>>> time elapsed: '):
-            ret_pid, status = os.waitpid(pid, 0)
-
-        print(f" >>>>>> ret_pid={ret_pid}")
-        print(f" >>>>>> status={status}")
+        from isaacgymenvs.train import launch_rlg_hydra
+        with Tick("\n\n\n\n    run launch_rlg_hydra time elapsed: "):
+            launch_rlg_hydra()
 
 
 if __name__ == '__main__':

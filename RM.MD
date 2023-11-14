@@ -310,11 +310,13 @@ isaac_gym_task_map = {
 
 启动训练：
 
-`python ./isaacgymenvs/train.py task=RMAnt`
+`python ./isaacgymenvs/train.py task=RMAnt num_envs=4096 +minibatch_size=65536 `
+
+其中，不带 `+` 的参数覆盖 RMAnt.yaml 的参数设置 `+` 表示增加新的参数，覆盖 rl-games 的 RMAntPPO.yaml 
 
 测试：
 
-`python train.py task=Ant checkpoint=runs/Ant/nn/Ant.pth`
+`python train.py task=Ant num_envs=64 checkpoint=runs/Ant/nn/Ant.pth`
 
 
 

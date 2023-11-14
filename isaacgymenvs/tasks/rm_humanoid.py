@@ -336,7 +336,13 @@ def compute_humanoid_reward(
 ):
     # type: (Tensor, Tensor, Tensor, int) -> Tuple[Tensor, Tensor]
 
-    total_reward = obs_buf[:, 2]
+    total_reward = torch.nn.functional.relu(obs_buf[:, 2] - 1.0, inplace=False)
+    # NOTE:
+    # total_reward = z : reward are always positive and may be erroneous due to precision issues
+    # total_reward = z - 1.5 : reward are negative when the humanoid squat down and thus harms the training
+    # total_reward = MAX(z - 1.5, 0) : reward are almost zero and limits the exploration ability
+    # total_reward = MAX(z - 1.0, 0) : no penalty when squat down, and gain positive reward when jump up
+    #
     # reset agents
     # from file nv_humanoid.xml
     # <body name="torso" pos="0 0 1.5" childclass="body">
