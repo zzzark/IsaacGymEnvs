@@ -5,7 +5,7 @@ params:
     name: amp_continuous
 
   model:
-    name: continuous_amp
+    name: amp_model
 
   network:
     name: amp

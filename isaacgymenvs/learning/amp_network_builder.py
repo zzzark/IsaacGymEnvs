@@ -37,10 +37,9 @@ import numpy as np
 DISC_LOGIT_INIT_SCALE = 1.0
 
 
-class AMPBuilder(network_builder.A2CBuilder):
+class AMPNetworkBuilder(network_builder.A2CBuilder):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        return
 
     class Network(network_builder.A2CBuilder.Network):
         def __init__(self, params, **kwargs):
@@ -117,5 +116,5 @@ class AMPBuilder(network_builder.A2CBuilder):
             return
 
     def build(self, name, **kwargs):
-        net = AMPBuilder.Network(self.params, **kwargs)
+        net = AMPNetworkBuilder.Network(self.params, **kwargs)
         return net

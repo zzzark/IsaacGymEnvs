@@ -28,15 +28,15 @@
 
 import torch.nn as nn
 from rl_games.algos_torch.models import ModelA2CContinuousLogStd
+from isaacgymenvs.learning.amp_network_builder import AMPNetworkBuilder
 
 
 class ModelAMPContinuous(ModelA2CContinuousLogStd):
     def __init__(self, network):
         super().__init__(network)
-        return
 
     def build(self, config):
-        net = self.network_builder.build('amp', **config)
+        net: AMPNetworkBuilder.Network = self.network_builder.build('amp_network', **config)
         for name, _ in net.named_parameters():
             print(name)
 
@@ -52,7 +52,6 @@ class ModelAMPContinuous(ModelA2CContinuousLogStd):
     class Network(ModelA2CContinuousLogStd.Network):
         def __init__(self, a2c_network, **kwargs):
             super().__init__(a2c_network, **kwargs)
-            return
 
         def forward(self, input_dict):
             is_train = input_dict.get('is_train', True)
