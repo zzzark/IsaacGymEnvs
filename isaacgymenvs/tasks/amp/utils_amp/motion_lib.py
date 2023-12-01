@@ -152,6 +152,40 @@ class MotionLib():
 
         return root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos
 
+    def export_bvh(self, mo, filename, up_scale=10.0):
+        from isaacgymenvs.tasks.amp.poselib.poselib.skeleton.skeleton3d import SkeletonMotion, SkeletonTree
+
+        mo: SkeletonMotion
+        t: SkeletonTree = mo._skeleton_tree
+        from fmbvh.bvh import BVH
+        from fmbvh.motion_tensor.bvh_casting import write_quaternion_to_bvh
+        rot = mo.local_rotation.view(mo.local_rotation.shape[0], -1, 4).permute(1, 2, 0)
+        off = t.local_translation.detach().cpu().numpy()
+        trs = mo.root_translation.view(mo.root_translation.shape[0], -1, 3).permute(1, 2, 0)
+
+        bvh = BVH()
+        # ---- zero root bone height ---- #
+        off[0, 2] = 0.0
+
+        # ---- Z UP to Y UP ---- #
+        x, z, y = off[:, 0:1], -off[:, 1:2], off[:, 2:3]  # NOTE: z = -y'
+        off = np.concatenate([x, y, z], axis=1)
+        x, z, y = trs[:, 0:1, :], -trs[:, 1:2, :], trs[:, 2:3, :]  # NOTE: z = -y'
+        trs = torch.concat([x, y, z], dim=1)
+
+        xyz = rot[:, :3, :]
+        x, z, y = xyz[:, 0:1, :], -xyz[:, 1:2, :], xyz[:, 2:3, :]  # NOTE: z = -y'
+        xyz = torch.concat([x, y, z], dim=1)
+
+        # ---- XYZW to WXYZ ---- #
+        w = rot[:, 3:, :]
+        rot = torch.concat([w, xyz], dim=1)
+
+        # ---- build && save ---- #
+        bvh.build_skeleton_from_scratch(t.parent_indices, t.node_names, (off * up_scale).tolist(), 60.0)
+        write_quaternion_to_bvh(trs * up_scale, rot, bvh)
+        bvh.to_file(os.path.join(os.getcwd(), f"runs/{filename}.bvh"))
+
     def _load_motions(self, motion_file):
         self._motions = []
         self._motion_lengths = []
@@ -189,6 +223,9 @@ class MotionLib():
             self._motion_weights.append(curr_weight)
             self._motion_files.append(curr_file)
 
+            print(f"Exporting motion file to bvh file to "
+                  f"{os.path.join(os.getcwd(), f'runs/{os.path.basename(curr_file)}.bvh')}")
+            self.export_bvh(curr_motion, os.path.basename(curr_file))
 
         self._motion_lengths = np.array(self._motion_lengths)
         self._motion_weights = np.array(self._motion_weights)
