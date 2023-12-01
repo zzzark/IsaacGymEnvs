@@ -51,6 +51,9 @@ class HumanoidAMPBase(VecTask):
     def __init__(self, config, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = config
 
+        self.task_speed = self.cfg["env"]["task_speed"]
+        self.task_speed_mul = self.cfg["env"]["task_speed_mul"]
+
         self._pd_control = self.cfg["env"]["pdControl"]
         self.power_scale = self.cfg["env"]["powerScale"]
         self.randomize = self.cfg["task"]["randomize"]
@@ -295,7 +298,7 @@ class HumanoidAMPBase(VecTask):
         return
 
     def _compute_reward(self, actions):
-        self.rew_buf[:] = compute_humanoid_reward(self.obs_buf)
+        self.rew_buf[:] = compute_humanoid_reward(self.obs_buf, self.task_speed, self.task_speed_mul)
         return
 
     def _compute_reset(self):
@@ -501,11 +504,11 @@ def compute_humanoid_observations(root_states, dof_pos, dof_vel, key_body_pos, l
     root_h = root_pos[:, 2:3]
     heading_rot = calc_heading_quat_inv(root_rot)
 
-    if (local_root_obs):
+    if (local_root_obs):  # false
         root_rot_obs = quat_mul(heading_rot, root_rot)
     else:
         root_rot_obs = root_rot
-    root_rot_obs = quat_to_tan_norm(root_rot_obs)
+    root_rot_obs = quat_to_tan_norm(root_rot_obs)  # quat -> 6d
 
     local_root_vel = my_quat_rotate(heading_rot, root_vel)
     local_root_ang_vel = my_quat_rotate(heading_rot, root_ang_vel)
@@ -523,13 +526,25 @@ def compute_humanoid_observations(root_states, dof_pos, dof_vel, key_body_pos, l
 
     dof_obs = dof_to_obs(dof_pos)
 
+    # RM here is the observation
+    # z height: 1
+    # root rot (6d): 6
+    # local root lin vel: 3
+    # local root ang vel: 3
+    # dof pos (convert to quat rotation): 13*4 = 52
+    # dof vel: 28
+    # end effector pose: 12  (see self._key_body_ids == [5, 8, 11, 14])
     obs = torch.cat((root_h, root_rot_obs, local_root_vel, local_root_ang_vel, dof_obs, dof_vel, flat_local_key_pos), dim=-1)
     return obs
 
 @torch.jit.script
-def compute_humanoid_reward(obs_buf):
-    # type: (Tensor) -> Tensor
-    reward = torch.ones_like(obs_buf[:, 0])
+def compute_humanoid_reward(obs_buf, task_speed, task_speed_mul):
+    # type: (Tensor, float, float) -> Tensor
+    # RM task reward goes here
+    # reward = torch.ones_like(obs_buf[:, 0])
+    root_local_x_speed = obs_buf[:, 7]
+    speed_rwd = torch.exp(-(root_local_x_speed - task_speed)**2.0) * task_speed_mul  # 0.0 ~ task_speed_mul
+    reward = speed_rwd
     return reward
 
 @torch.jit.script

@@ -515,6 +515,7 @@ class AMPAgent(a2c_continuous.A2CAgent):
         self.last_lr = config['learning_rate']
         
         self._task_reward_w = config['task_reward_w']
+        self._reward_combine = config['reward_combine']
         self._disc_reward_w = config['disc_reward_w']
 
         self._amp_observation_space = self.env_info['amp_observation_space']
@@ -608,8 +609,14 @@ class AMPAgent(a2c_continuous.A2CAgent):
 
     def _combine_rewards(self, task_rewards, amp_rewards):
         disc_r = amp_rewards['disc_rewards']
-        combined_rewards = self._task_reward_w * task_rewards + \
-                         + self._disc_reward_w * disc_r
+        if self._reward_combine == 'add':
+            combined_rewards = self._task_reward_w * task_rewards + \
+                             + self._disc_reward_w * disc_r
+        elif self._reward_combine == 'mul':
+            combined_rewards = self._task_reward_w * task_rewards * \
+                             + self._disc_reward_w * disc_r
+        else:
+            raise NotImplementedError(f"unknown reward combine method: {self._reward_combine}")
         return combined_rewards
 
     def _eval_disc(self, amp_obs):
