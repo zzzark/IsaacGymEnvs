@@ -613,6 +613,7 @@ class AMPAgent(a2c_continuous.A2CAgent):
             combined_rewards = self._task_reward_w * task_rewards + \
                              + self._disc_reward_w * disc_r
         elif self._reward_combine == 'mul':
+            assert self._task_reward_w * self._disc_reward_w > 0.0  # assure the reward not always zero
             combined_rewards = self._task_reward_w * task_rewards * \
                              + self._disc_reward_w * disc_r
         else:
