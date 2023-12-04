@@ -53,10 +53,23 @@ class Tick:
         print(f"{self.heading}{formatted_time}")
 
 
+def cleanup_failed_runs():
+    pj = os.path.join
+    for d in os.listdir("runs"):
+        if not os.path.isdir(pj("runs", d)):
+            continue
+        p = pj("runs", pj(d, "nn"))
+        if len(os.listdir(p)) == 0:
+            import shutil
+            print(f"cleaning {pj('runs', d)} ... ")
+            shutil.rmtree(pj('runs', d))
+
+
 def main():
-    from os.path import join as pj
     cwd = os.getcwd()
     print(f"cwd: {cwd}")
+
+    cleanup_failed_runs()
 
     cur_time = datetime.datetime.now()
     os.makedirs("./runs", exist_ok=True)
