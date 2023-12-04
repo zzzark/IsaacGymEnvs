@@ -61,7 +61,6 @@ headless: False
 defaults:
   - task: Ant
   - train: ${task}PPO
-  - pbt: no_pbt
   - override hydra/job_logging: disabled
   - _self_
 

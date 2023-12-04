@@ -318,43 +318,170 @@ isaac_gym_task_map = {
 
 `python train.py task=Ant num_envs=64 checkpoint=runs/Ant/nn/Ant.pth`
 
+其他：
+
+`sim_device`:  "cuda:0"
+
+`rl_device`: "cuda:0"
+
+可以选取其他值，在其他 GPU 上训练
+
 
 
 #### 自定义算法和模型
 
+- AlgoObserver
+- Agent
+- ModelBuilder
+- NetworkBuilder
+- Player
 
-algo_observer: 算法监视器，用于纪录日志等
+```c++
+torch_runner {
+    /* ---------------- 训练时 ---------------- */
+	run_train {
+        agent = algo_factory.create();  // agent 工厂
+        _restore();          // 加载 ckpt
+        _override_sigma();   // 将 fixed_sigma 搬运到 sigma，硬编码
+        agent.train();       // train 入口
+	}
 
-algo (Agent)
-
-player (Player)
-
-model (Model)
-
-network (Builder)
-
-```python
-runner = Runner(algo_observer)
-runner.algo_factory.register_builder(
-    'amp_continuous', 
-    lambda **kwargs : amp_continuous.AMPAgent(**kwargs)
-)
-runner.player_factory.register_builder(
-    'amp_continuous',
-    lambda **kwargs : amp_players.AMPPlayerContinuous(**kwargs)
-)
-model_builder.register_model(
-    'continuous_amp', 
-    lambda network, **kwargs : amp_models.ModelAMPContinuous(network)
-)
-model_builder.register_network(
-    'amp', 
-    lambda **kwargs : amp_network_builder.AMPBuilder()
-)
-
+    /* ---------------- 测试时 ---------------- */
+	run_play {
+        player = player_factory.create();  // player 工厂
+        _restore();         // 加载 ckpt
+        _override_sigma();  // 将 fixed_sigma 搬运到 sigma，硬编码
+        player.run();       // play 入口        
+	}
+}
 ```
 
 
+
+```c++
+algo_builder.Agent.__init__()  # CommonAgent
+{
+	self.model = model_builder:model.Model.build()  /* ModelAMPContinuous */
+    {
+    	// 负责收集网络的输出，放置在 replay buffer 中
+        return ModelBuilder.Network(model_builder:network.Builder.build()/* AMPBuilder */)
+        {
+            // 只会构建并生成相应的网络
+            return NetworkBuilder.Network(
+                - actor_mlp
+                - critic_mlp
+                - disc_mlp
+                - sigma
+                - value.RunningMeanStd
+                - obs.RunningMeanStd
+                - ...
+            )
+        }
+        
+        self.dataset = AMPDataset(...)  // MARK: dataset
+    }
+}
+
+```
+
+```
+dataset: 训练 actor
+experience_buffer：训练 critic, discriminator
+```
+
+
+
+```c++
+algo_builder.Agent.train()
+{
+    init_tensors();  // 初始化 experience buffer (!= replay buffer)
+    while (true) {
+	    train_epoch() {
+            set_eval();
+            for i in range(horizon_length):
+			   // experience_buffer.update ... 
+            	- env_reset_done()
+            	- action = model.forward( obs ) {
+                    return NetworkBuilder.Network.forward( obs )
+                }
+            	- env_step() {
+                    MyTask.post_physics_step()
+                }
+            	- v_{t+1} = eval_critic( obs )
+            	- 
+            	- 
+            	- 
+            	- 
+                // no need to train like a real GAN
+            	- Loss = actor_loss
+                       + critic_loss
+                       - entropy_loss
+                       + bound_loss  // clip action mu
+                       + disc_loss   // class_loss + GP_loss
+        }
+    }
+}
+```
+
+
+
+
+
+
+| Key           | Shape  | Value       | Desc  |
+| ------------- | ----------------------------------- | ------------ | ------------- |
+| actions       |                                     |              |              |
+| neglogpacs    |                                     |              |              |
+| values        |                                     |              |              |
+| returns       |                                     |              |              |
+| rewards       |                                     |              |              |
+| obses         | [H, E, 105]                         | s_t          |           |
+| next_obses    | [H, E, 105]                         | s_t+1        |         |
+| amp_obs       | [H, E, 210]                         | (s_t+1, s_t) | amp : Discriminator |
+| amp_obs_replay | [HxE, 210] |  | 从 replay buffer 采样 |
+| amp_obs_demo | [HxE, 210] |              | 真实数据 demo |
+| dones         | [H, E]                              |              |              |
+| mus           |                                     |              |              |
+| sigmas        |                                     |              |              |
+| played_frames |                                     |              |              |
+| disc_rewards  |                                     |              |              |
+|               |                                     |              |              |
+
+
+
+
+
+### Motion
+
+*.npy file
+
+```
+rotation:                [F, J, 4], float32
+root_translation:        [F, 3], float32
+global_velocity:         [F, J, 3], float32
+global_angular_velocity: [F, J, 3], float32
+skeleton_tree:
+	node_names:          string[J]  # e.g. [pelvis, torso, head, right_upper_arm, ...]
+	parent_indices:      [J], int64
+	local_translation:   [J, 3], float32
+fps: <ndarray.int32>  # 60
+```
+
+```python
+motion_ids = _motion_lib.sample_motion(num_envs)
+# 训练可能有多个 motion，每个 motion 有各自的 _motion_weights
+# 这里按照 _motion_weights 概率采样
+
+motion_times = _motion_lib.sample_time(motion_ids)
+# 输入：motion 片段的 id
+# 输出：该片段采样的时间点 (random state init)
+#      note：可以置为 0 (fixed state init)
+# 
+# 随机采样一个时间点
+
+root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos = _motion_lib.get_motion_state(motion_ids, motion_times)
+# 获取当前 id 当前 time 的 motion state
+```
 
 
 
