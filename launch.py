@@ -1,14 +1,3 @@
-# Fix pycharm bug when running subdirectory script
-
-"""
-docker run -it -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --network=host --gpus=all --name=<NAME> <ID> /bin/bash
-
-# maps:
-    ./IsaacGymEnvs -> /opt/projects
-
-# args:
-    -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY --network=host --gpus=all
-"""
 import os
 import time
 import datetime
